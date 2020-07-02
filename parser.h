@@ -21,6 +21,11 @@ typedef enum {
 extern const char* keyword_strings[];
 
 typedef enum {
+    OP_PLUS_EQUAL,
+    OP_MINUS_EQUAL,
+    OP_TIMES_EQUAL,
+    OP_DIV_EQUAL,
+    OP_MOD_EQUAL,
     OP_PLUS,
     OP_MINUS,
     OP_TIMES,
@@ -29,6 +34,10 @@ typedef enum {
     OP_EQUAL,
     OP_EQUAL_EQUAL,
     OP_BANG_EQUAL,
+    OP_LESS_THAN,
+    OP_LESS_EQUAL,
+    OP_GREATER_THAN,
+    OP_GREATER_EQUAL,
     OP__COUNT
 } Operator;
 extern const char* operator_strings[];
@@ -36,6 +45,7 @@ extern const char* operator_strings[];
 enum {
     SEP_SEMICOLON,
     SEP_COLON,
+    SEP_PERIOD,
     SEP_APOSTROPHE,
     SEP_QUOTE,
     SEP_LPAREN,
@@ -49,7 +59,7 @@ enum {
 extern const char* separator_strings[];
 
 typedef union {
-    int data;
+    int id;
     char* string;
 } TokenValue;
 
@@ -80,3 +90,4 @@ typedef struct TokenNode {
 
 bool buffer_code_file(CodeBuffer* buffer, const char* fpath);
 TokenNode* tokenize(const CodeBuffer* buffer);
+void print_token(Token token);

@@ -16,6 +16,11 @@ const char* keyword_strings[] = {
 };
 
 const char* operator_strings[] = {
+    "+=",
+    "-=",
+    "*=",
+    "/=",
+    "%=",
     "+",
     "-",
     "*",
@@ -24,11 +29,16 @@ const char* operator_strings[] = {
     "=",
     "==",
     "!=",
+    "<",
+    "<=",
+    ">",
+    ">=",
 };
 
 const char* separator_strings[] = {
     ";",
     ",",
+    ".",
     "'",
     "\"",
     "(",
@@ -57,43 +67,36 @@ bool buffer_code_file(CodeBuffer* buffer, const char* fpath) {
     if (!input_file) {
 	return false;
     }
-    buffer->line_count = 0;
-    int c;
-    int prevc = EOF;
-    while ((c = fgetc(input_file)) != EOF) {
-	if (c == '\n')
-	    buffer->line_count++;
-	prevc = c;
-    }
-    if (prevc == EOF) {
-	WARNING("Empty file '%s'", fpath);
-	buffer->lines = NULL;
-	buffer->line_lengths = NULL;
-	buffer->line_count = 0;
-	return true;
-    } else if (prevc != '\n') {
-	WARNING("Missing trailing newline in file %s", fpath);
-	buffer->line_count++;
-    }
+    fseek(input_file, 0, SEEK_END);
+    long file_length = ftell(input_file);
     rewind(input_file);
+    char* file_buffer = malloc(file_length + 1);
+    fread(file_buffer, 1, file_length, input_file);
+    fclose(input_file);
+    file_buffer[file_length] = '\0';
+    puts(file_buffer);
 
+    // Replace newline characters with zeros & count lines
+    char* current = file_buffer;
+    char* next_newline;
+    buffer->line_count = 1;
+    while (next_newline = strchr(current, '\n')) {
+	buffer->line_count++;
+	*next_newline = '\0';
+	current = next_newline + 1;
+    }
+
+    // Fill buffer lines
     buffer->lines = malloc(sizeof(char*) * buffer->line_count);
     buffer->line_lengths = malloc(sizeof(long) * buffer->line_count);
-    char line_buffer[MAX_LINE_LENGTH];
-    int i = 0;
-    while (fgets(line_buffer, MAX_LINE_LENGTH, input_file)) {
-	buffer->lines[i] = malloc(strlen(line_buffer) + 1);
-	strcpy(buffer->lines[i], line_buffer);
-	// Remove trailing newline : 
-	buffer->lines[i][strcspn(buffer->lines[i], "\n")] = '\0';
-	buffer->line_lengths[i] = strlen(buffer->lines[i]);
-	i++;
+    current = file_buffer;
+    for (int i = 0; i < buffer->line_count; i++) {
+	buffer->lines[i] = current;
+	buffer->line_lengths[i] = strlen(current);
+	current += buffer->line_lengths[i] + 1;
     }
-    if (i != buffer->line_count) {
-	ERROR("Failed to parse file '%s'", fpath);
-	return false;
-    }
-
+    printf("offset = %ld, length = %ld\n",
+	   current - file_buffer - 1, file_length);
     return true;
 }
 
@@ -171,7 +174,7 @@ bool b_match(const CodeBuffer* cb, Cursor* cursor, const char* pattern) {
     int i = 0;
     Cursor prev_cursor = *cursor;
     char c;
-    while ((c = b_getc(cb, cursor)) && *pattern && (c == *pattern))
+    while (*pattern && (c = b_getc(cb, cursor)) && (c == *pattern))
 	pattern++;
 
     if (*pattern) {
@@ -203,6 +206,32 @@ bool is_space(char c) {
     return c == ' ' || c == '\t' || c == '\n';
 }
 
+void print_token(Token token) {
+    switch (token.kind) {
+    case UNKNOWN:
+	printf("UNKNOWN");
+	break;
+    case IDENTIFIER:
+	printf("IDENTIFIER('%s')", token.value.string);
+	break;
+    case KEYWORD:
+	printf("KEYWORD('%s')", keyword_strings[token.value.id]);
+	break;
+    case OPERATOR:
+	printf("OPERATOR('%s')", operator_strings[token.value.id]);
+	break;
+    case SEPARATOR:
+	printf("SEPARATOR('%s')", separator_strings[token.value.id]);
+	break;
+    case LITERAL:
+	printf("LITERAL('%s')", token.value.string);
+	break;
+    case COMMENT:
+	printf("COMMENT('%.5s...')", token.value.string);
+	break;
+    }
+}
+
 TokenNode* tokenize(const CodeBuffer* cb) {
     TokenNode* result = NULL;
     TokenNode* last = NULL;
@@ -216,10 +245,7 @@ TokenNode* tokenize(const CodeBuffer* cb) {
     b_skip_space(cb, &cursor);
 
     while (!b_done(cb, &cursor)) {
-	printf("%d:%d  %c\n", cursor.l, cursor.c, b_peekc(cb, &cursor));
-	printf("Before skip space : %d:%d\n", cursor.l, cursor.c);
-	b_skip_space(cb, &cursor);
-	printf("After skip space : %d:%d\n", cursor.l, cursor.c);
+	/* printf("%d:%d  %c\n", cursor.l, cursor.c, b_peekc(cb, &cursor)); */
 	Token token;
 	token.kind = UNKNOWN;
 	token.l1 = cursor.l;
@@ -238,38 +264,38 @@ TokenNode* tokenize(const CodeBuffer* cb) {
 	    strncpy(token.value.string, &cb->lines[cursor.l][cursor.c], comment_length);
 	} else if (b_match_any(cb, &cursor, keyword_strings, KW__COUNT, &i)) {
 	    token.kind = KEYWORD;
-	    token.value.data = i;
+	    token.value.id = i;
 	    token.l2 = cursor.l;
 	    token.c2 = cursor.c;
 	} else if (b_match_any(cb, &cursor, operator_strings, OP__COUNT, &i)) {
 	    token.kind = OPERATOR;
-	    token.value.data = i;
+	    token.value.id = i;
 	    token.l2 = cursor.l;
 	    token.c2 = cursor.c;
 	} else if (b_match_any(cb, &cursor, separator_strings, SEP__COUNT, &i)) {
 	    token.kind = SEPARATOR;
-	    token.value.data = i;
+	    token.value.id = i;
 	    token.l2 = cursor.l;
 	    token.c2 = cursor.c;
-	} else if (is_digit(cb->lines[cursor.l][cursor.c])
-		   || cb->lines[cursor.l][cursor.c] == '.') {
+	} else if (is_digit(b_peekc(cb, &cursor))
+		   || b_peekc(cb, &cursor) == '.') {
 	    token.kind = LITERAL;
 	    int startcol = cursor.c;
 	    while (cursor.c < cb->line_lengths[cursor.l]
-		   && (is_digit(cb->lines[cursor.l][cursor.c])
-		       || cb->lines[cursor.l][cursor.c] == '.')) {
+		   && (is_digit(b_peekc(cb, &cursor))
+		       || b_peekc(cb, &cursor) == '.')) {
 		cursor.c++;
 	    }
 	    token.value.string = malloc(cursor.c - startcol + 1);
 	    strncpy(token.value.string, &cb->lines[cursor.l][startcol], cursor.c - startcol);
 	    token.value.string[cursor.c - startcol] = '\0';
-	} else if (is_letter(cb->lines[cursor.l][cursor.c])
-		   || cb->lines[cursor.l][cursor.c] == '_') {
+	} else if (is_letter(b_peekc(cb, &cursor))
+		   || b_peekc(cb, &cursor) == '_') {
 	    token.kind = IDENTIFIER;
 	    int startcol = cursor.c;
 	    while (cursor.c < cb->line_lengths[cursor.l]
-		   && (is_letter(cb->lines[cursor.l][cursor.c])
-		       || cb->lines[cursor.l][cursor.c] == '_')) {
+		   && (is_letter(b_peekc(cb, &cursor))
+		       || b_peekc(cb, &cursor) == '_')) {
 		cursor.c++;
 	    }
 	    token.value.string = malloc(cursor.c - startcol + 1);
@@ -280,15 +306,15 @@ TokenNode* tokenize(const CodeBuffer* cb) {
 	if (!token.kind) {
 	    ERROR("Unknown token at %d:%d\n", token.l1 + 1, token.c1 + 1);
 	    break;
-	} else {
-	    push_token(&result, &last, token);
-
-	    // Make sure we end up in a valid cursor state
-	    while (cursor.c == cb->line_lengths[cursor.l]) {
-		cursor.l++;
-		cursor.c = 0;
-	    }
 	}
+	push_token(&result, &last, token);
+	
+	// Make sure we end up in a valid cursor state
+	while (cursor.c == cb->line_lengths[cursor.l]) {
+	    cursor.l++;
+	    cursor.c = 0;
+	}
+
 	b_skip_space(cb, &cursor);
     }
 

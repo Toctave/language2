@@ -15,7 +15,9 @@ int main(int argc, char** argv) {
     }
     TokenNode* head = tokenize(&cb);
     for (TokenNode* node = head; node; node = node->next) {
-	printf("%d\n", node->token.kind);
+	print_token(node->token);
+	if (node->next)
+	    printf("\n");
     }
 	
     return EXIT_SUCCESS;
